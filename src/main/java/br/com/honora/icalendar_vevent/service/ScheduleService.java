@@ -15,6 +15,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -263,5 +264,131 @@ public class ScheduleService {
             sb.append(";UNTIL=").append(f.format(inst));
         }
         return sb.toString();
+    }
+
+    // ========================= ICS (iCalendar) =========================
+    private static final DateTimeFormatter ICS_ZULU = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'")
+            .withZone(ZoneOffset.UTC);
+    private static final DateTimeFormatter ICS_LOCAL = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss");
+
+    @Transactional(readOnly = true)
+    public String buildIcsForSchedule(UUID scheduleId) {
+        Schedule s = scheduleRepository.findByIdWithChildren(scheduleId)
+                .orElseThrow(() -> new IllegalArgumentException("Schedule not found: " + scheduleId));
+
+        String uid = s.getId().toString() + "@icalendar-vevent"; // personalize se quiser
+        String dtStamp = ICS_ZULU.format(Instant.now());
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("BEGIN:VCALENDAR\r\n");
+        sb.append("PRODID:-//UVIX//Agenda de Plantões//PT-BR\r\n");
+        sb.append("VERSION:2.0\r\n");
+        sb.append("CALSCALE:GREGORIAN\r\n");
+        sb.append("METHOD:PUBLISH\r\n\r\n");
+
+        // Base VEVENT (série)
+        sb.append("BEGIN:VEVENT\r\n");
+        sb.append("UID:").append(uid).append("\r\n");
+        sb.append("DTSTAMP:").append(dtStamp).append("\r\n");
+        if (s.getSummary() != null)
+            sb.append("SUMMARY:").append(escapeText(s.getSummary())).append("\r\n");
+        if (s.getNotes() != null)
+            sb.append("DESCRIPTION:").append(escapeText(s.getNotes())).append("\r\n");
+
+        // DTSTART local com TZID
+        String tzid = s.getTzid();
+        String dtStartLocal = ICS_LOCAL.format(s.getSeriesStartLocal());
+        sb.append("DTSTART;TZID=").append(tzid).append(":").append(dtStartLocal).append("\r\n");
+
+        // DURATION ISO-8601
+        sb.append("DURATION:").append(toISODuration(s.getDurationSeconds())).append("\r\n");
+
+        // RRULE a partir do JSON
+        JsonNode rr = s.getRruleJson();
+        if (rr != null && rr.has("freq")) {
+            String rruleString = buildRruleFromJson(rr);
+            if (!rruleString.isBlank()) {
+                sb.append("RRULE:").append(rruleString).append("\r\n");
+            }
+        }
+
+        // EXDATE (em linhas, podendo agrupar por TZID igual ao DTSTART)
+        if (s.isHasExdates() && s.getExdates() != null && !s.getExdates().isEmpty()) {
+            String exdates = s.getExdates().stream()
+                    .map(ScheduleExdate::getExdateLocal)
+                    .sorted()
+                    .map(ldt -> ICS_LOCAL.format(ldt))
+                    .collect(Collectors.joining(","));
+            if (!exdates.isBlank()) {
+                sb.append("EXDATE;TZID=").append(tzid).append(":").append(exdates).append("\r\n");
+            }
+        }
+
+        // RDATEs agregados no evento mestre
+        if (s.isHasRdates() && s.getRdates() != null && !s.getRdates().isEmpty()) {
+            String rdates = s.getRdates().stream()
+                    .map(ScheduleRdate::getRdateLocal)
+                    .sorted()
+                    .map(ldt -> ICS_LOCAL.format(ldt))
+                    .collect(Collectors.joining(","));
+            if (!rdates.isBlank()) {
+                sb.append("RDATE;TZID=").append(tzid).append(":").append(rdates).append("\r\n");
+            }
+        }
+
+        sb.append("END:VEVENT\r\n\r\n");
+
+        // Overrides – um VEVENT por override com RECURRENCE-ID
+        if (s.isHasOverrides() && s.getOverrides() != null) {
+            for (ScheduleOverride o : s.getOverrides()) {
+                sb.append("BEGIN:VEVENT\r\n");
+                sb.append("UID:").append(uid).append("\r\n");
+                sb.append("DTSTAMP:").append(dtStamp).append("\r\n");
+                sb.append("RECURRENCE-ID;TZID=").append(tzid).append(":")
+                        .append(ICS_LOCAL.format(o.getRecurrenceIdLocal())).append("\r\n");
+                if (o.getSummary() != null)
+                    sb.append("SUMMARY:").append(escapeText(o.getSummary())).append("\r\n");
+                if (o.getNotes() != null)
+                    sb.append("DESCRIPTION:").append(escapeText(o.getNotes())).append("\r\n");
+                sb.append("DTSTART;TZID=").append(tzid).append(":").append(ICS_LOCAL.format(o.getNewStartLocal()))
+                        .append("\r\n");
+                sb.append("DURATION:").append(toISODuration(
+                        Optional.ofNullable(o.getNewDurationSeconds()).orElse(s.getDurationSeconds())))
+                        .append("\r\n");
+                sb.append("END:VEVENT\r\n\r\n");
+            }
+        }
+
+    // (Sem VEVENTs separados para RDATE; usamos RDATE no mestre.)
+
+        sb.append("END:VCALENDAR\r\n");
+        return sb.toString();
+    }
+
+    private static String toISODuration(Integer seconds) {
+        if (seconds == null || seconds <= 0)
+            return "PT0S";
+        long s = seconds;
+        long h = s / 3600;
+        s %= 3600;
+        long m = s / 60;
+        s %= 60;
+        StringBuilder b = new StringBuilder("PT");
+        if (h > 0)
+            b.append(h).append('H');
+        if (m > 0)
+            b.append(m).append('M');
+        if (s > 0 || (h == 0 && m == 0))
+            b.append(s).append('S');
+        return b.toString();
+    }
+
+    // Escapa texto conforme RFC5545 (vírgula, ponto e vírgula, barra invertida, quebras)
+    private static String escapeText(String text) {
+        return text.replace("\\", "\\\\")
+                .replace(";", "\\;")
+                .replace(",", "\\,")
+                .replace("\r\n", "\\n")
+                .replace("\n", "\\n");
     }
 }

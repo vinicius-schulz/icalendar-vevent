@@ -9,9 +9,19 @@ import org.springframework.stereotype.Repository;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface ScheduleRepository extends JpaRepository<Schedule, UUID> {
+    @Query("""
+            SELECT DISTINCT s FROM Schedule s
+            LEFT JOIN FETCH s.exdates
+            LEFT JOIN FETCH s.rdates
+            LEFT JOIN FETCH s.overrides
+            WHERE s.id = :id
+            """)
+    Optional<Schedule> findByIdWithChildren(@Param("id") UUID id);
+
     /**
      * Candidates whose series window overlaps the [from, to] window.
      * Uses indexes on sch_series_start_utc and sch_series_until_utc.

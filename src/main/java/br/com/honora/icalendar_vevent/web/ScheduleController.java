@@ -1,8 +1,12 @@
 package br.com.honora.icalendar_vevent.web;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 import java.util.List;
 
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -65,6 +69,17 @@ public class ScheduleController {
 
         List<ScheduleOccurrenceResponse> list = scheduleService.findOccurrencesBetween(from, to);
         return ResponseEntity.ok(list);
+    }
+
+    @Operation(summary = "Exporta um Schedule como .ics", description = "Gera um arquivo iCalendar (text/calendar) com VEVENT mestre (RRULE/EXDATE/RDATE) e VEVENTs de overrides.")
+    @GetMapping(value = "/{id}/calendar.ics")
+    public ResponseEntity<byte[]> exportIcs(@org.springframework.web.bind.annotation.PathVariable("id") UUID id) {
+        String ics = scheduleService.buildIcsForSchedule(id);
+        byte[] bytes = ics.getBytes(StandardCharsets.UTF_8);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(new MediaType("text", "calendar"));
+        headers.set(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=calendar-" + id + ".ics");
+        return ResponseEntity.ok().headers(headers).body(bytes);
     }
 
 }

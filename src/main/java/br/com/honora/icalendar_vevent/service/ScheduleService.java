@@ -28,6 +28,7 @@ import br.com.honora.icalendar_vevent.domain.ScheduleRdate;
 import br.com.honora.icalendar_vevent.dto.request.ScheduleRequest;
 import br.com.honora.icalendar_vevent.dto.response.ScheduleOccurrenceResponse;
 import br.com.honora.icalendar_vevent.repository.ScheduleRepository;
+import br.com.honora.icalendar_vevent.utils.DateUtils;
 import net.fortuna.ical4j.model.DateList;
 import net.fortuna.ical4j.model.DateTime;
 import net.fortuna.ical4j.model.Period;
@@ -94,28 +95,35 @@ public class ScheduleService {
 
     /**
      * Retorna ocorrências entre from..to (ambos em UTC).
-     * - Usa filtros no banco para reduzir candidatos (janela da série, RDATEs e OVERRIDES no range)
+     * - Usa filtros no banco para reduzir candidatos (janela da série, RDATEs e
+     * OVERRIDES no range)
      * - Interpreta RRULE em JSON para gerar ocorrências
      * - Remove EXDATEs para ocorrências RRULE/RDATE do mesmo schedule
      * - Inclui RDATEs e OVERRIDES
      */
     @Transactional(readOnly = true)
-    public List<ScheduleOccurrenceResponse> findOccurrencesBetween(OffsetDateTime from, OffsetDateTime to) {
+    public List<ScheduleOccurrenceResponse> findOccurrencesBetween(String fromStr, String toStr) {
+        OffsetDateTime from = DateUtils.parseFlexibleOffsetDateTime(fromStr);
+        OffsetDateTime to = DateUtils.parseFlexibleOffsetDateTime(toStr);
         Objects.requireNonNull(from, "from is required");
         Objects.requireNonNull(to, "to is required");
 
-        // Phase 1: pre-filter candidate schedules by overlapping series window, rdates, or overrides
+        // Phase 1: pre-filter candidate schedules by overlapping series window, rdates,
+        // or overrides
         List<Schedule> byWindow = scheduleRepository.findCandidatesBySeriesWindow(from, to);
         List<Schedule> byRdates = scheduleRepository.findWithRdatesInRange(from, to);
         List<Schedule> byOverrides = scheduleRepository.findWithOverridesInRange(from, to);
 
         // Merge unique candidates
         Map<java.util.UUID, Schedule> candidates = new java.util.LinkedHashMap<>();
-        for (Schedule s : byWindow) candidates.put(s.getId(), s);
-        for (Schedule s : byRdates) candidates.putIfAbsent(s.getId(), s);
-        for (Schedule s : byOverrides) candidates.putIfAbsent(s.getId(), s);
+        for (Schedule s : byWindow)
+            candidates.put(s.getId(), s);
+        for (Schedule s : byRdates)
+            candidates.putIfAbsent(s.getId(), s);
+        for (Schedule s : byOverrides)
+            candidates.putIfAbsent(s.getId(), s);
 
-    List<ScheduleOccurrenceResponse> result = new ArrayList<>();
+        List<ScheduleOccurrenceResponse> result = new ArrayList<>();
 
         for (Schedule s : candidates.values()) {
             ZoneId zoneId = ZoneId.of(s.getTzid());
@@ -160,15 +168,15 @@ public class ScheduleService {
                             continue;
                         }
 
-            // Within [from, to] already ensured by generator; add occurrence
-            ScheduleOccurrenceResponse resp = new ScheduleOccurrenceResponse(
-                s.getId(),
-                "SCHEDULE",
-                occUtc,
-                s.getDurationSeconds(),
-                s.getSummary(),
-                s.getNotes());
-            occByStartUtc.putIfAbsent(resp.getStart(), resp);
+                        // Within [from, to] already ensured by generator; add occurrence
+                        ScheduleOccurrenceResponse resp = new ScheduleOccurrenceResponse(
+                                s.getId(),
+                                "SCHEDULE",
+                                occUtc,
+                                s.getDurationSeconds(),
+                                s.getSummary(),
+                                s.getNotes());
+                        occByStartUtc.putIfAbsent(resp.getStart(), resp);
                     }
                 } catch (Exception ignore) {
                     // If RRULE parsing fails, ignore RRULE occurrences for this schedule
@@ -186,43 +194,44 @@ public class ScheduleService {
                 if (exdatesLocal.contains(rLocal)) {
                     continue;
                 }
-        ScheduleOccurrenceResponse resp = new ScheduleOccurrenceResponse(
-            s.getId(),
-            "RDATE",
-            rUtc,
-            Optional.ofNullable(r.getDurationSeconds()).orElse(s.getDurationSeconds()),
-            s.getSummary(),
-            s.getNotes());
-        occByStartUtc.putIfAbsent(resp.getStart(), resp);
+                ScheduleOccurrenceResponse resp = new ScheduleOccurrenceResponse(
+                        s.getId(),
+                        "RDATE",
+                        rUtc,
+                        Optional.ofNullable(r.getDurationSeconds()).orElse(s.getDurationSeconds()),
+                        s.getSummary(),
+                        s.getNotes());
+                occByStartUtc.putIfAbsent(resp.getStart(), resp);
             }
 
             // 3) Include Overrides (new start) within [from, to]
             for (ScheduleOverride o : s.getOverrides()) {
                 LocalDateTime newLocal = o.getNewStartLocal();
-                OffsetDateTime newUtc = newLocal.atZone(zoneId).toOffsetDateTime().withOffsetSameInstant(ZoneOffset.UTC);
+                OffsetDateTime newUtc = newLocal.atZone(zoneId).toOffsetDateTime()
+                        .withOffsetSameInstant(ZoneOffset.UTC);
                 if (newUtc.isBefore(from) || newUtc.isAfter(to)) {
                     continue;
                 }
                 // Overrides replace the base recurrence; EXDATE does not remove overrides.
-        ScheduleOccurrenceResponse resp = new ScheduleOccurrenceResponse(
-            s.getId(),
-            "OVERRIDE",
-            newUtc,
-            Optional.ofNullable(o.getNewDurationSeconds()).orElse(s.getDurationSeconds()),
-            Optional.ofNullable(o.getSummary()).orElse(s.getSummary()),
-            Optional.ofNullable(o.getNotes()).orElse(s.getNotes()));
-        // If an RRULE/RDATE occurrence is at the exact same UTC instant, override wins
-        occByStartUtc.put(resp.getStart(), resp);
+                ScheduleOccurrenceResponse resp = new ScheduleOccurrenceResponse(
+                        s.getId(),
+                        "OVERRIDE",
+                        newUtc,
+                        Optional.ofNullable(o.getNewDurationSeconds()).orElse(s.getDurationSeconds()),
+                        Optional.ofNullable(o.getSummary()).orElse(s.getSummary()),
+                        Optional.ofNullable(o.getNotes()).orElse(s.getNotes()));
+                // If an RRULE/RDATE occurrence is at the exact same UTC instant, override wins
+                occByStartUtc.put(resp.getStart(), resp);
             }
 
             // Collect this schedule's occurrences
             result.addAll(occByStartUtc.values());
         }
 
-    // Sort by start asc, then scheduleId
-    result.sort(Comparator
-        .comparing(ScheduleOccurrenceResponse::getStart)
-        .thenComparing(ScheduleOccurrenceResponse::getScheduleId));
+        // Sort by start asc, then scheduleId
+        result.sort(Comparator
+                .comparing(ScheduleOccurrenceResponse::getStart)
+                .thenComparing(ScheduleOccurrenceResponse::getScheduleId));
 
         return result;
     }

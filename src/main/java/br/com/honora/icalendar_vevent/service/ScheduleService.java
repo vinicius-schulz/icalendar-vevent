@@ -27,6 +27,8 @@ import br.com.honora.icalendar_vevent.domain.ScheduleExdate;
 import br.com.honora.icalendar_vevent.domain.ScheduleOverride;
 import br.com.honora.icalendar_vevent.domain.ScheduleRdate;
 import br.com.honora.icalendar_vevent.dto.request.ScheduleRequest;
+import br.com.honora.icalendar_vevent.dto.request.ScheduleOverrideRequest;
+import br.com.honora.icalendar_vevent.dto.request.ForceEndRequest;
 import br.com.honora.icalendar_vevent.dto.response.ScheduleOccurrenceResponse;
 import br.com.honora.icalendar_vevent.dto.response.ScheduleResponse;
 import br.com.honora.icalendar_vevent.repository.ScheduleRepository;
@@ -44,6 +46,113 @@ public class ScheduleService {
 
     public ScheduleService(ScheduleRepository scheduleRepository) {
         this.scheduleRepository = scheduleRepository;
+    }
+
+    // ========= Mutations on existing schedule (without changing RRULE) =========
+    @Transactional
+    public void putExdate(UUID scheduleId, String exdateLocalStr) {
+        Schedule s = scheduleRepository.findById(scheduleId)
+                .orElseThrow(() -> new IllegalArgumentException("Schedule not found: " + scheduleId));
+        Objects.requireNonNull(exdateLocalStr, "exdateLocal is required");
+        LocalDateTime ldt = LocalDateTime.parse(exdateLocalStr);
+        boolean exists = s.getExdates().stream().anyMatch(e -> e.getExdateLocal().equals(ldt));
+        if (!exists) {
+            s.addExdate(ScheduleExdate.builder().exdateLocal(ldt).build());
+        }
+        s.setHasExdates(true);
+        scheduleRepository.save(s);
+    }
+
+    @Transactional
+    public void deleteExdate(UUID scheduleId, String exdateLocalStr) {
+        Schedule s = scheduleRepository.findById(scheduleId)
+                .orElseThrow(() -> new IllegalArgumentException("Schedule not found: " + scheduleId));
+        Objects.requireNonNull(exdateLocalStr, "exdateLocal is required");
+        LocalDateTime ldt = LocalDateTime.parse(exdateLocalStr);
+        s.getExdates().removeIf(e -> e.getExdateLocal().equals(ldt));
+        if (s.getExdates().isEmpty()) s.setHasExdates(false);
+        scheduleRepository.save(s);
+    }
+
+    @Transactional
+    public void putRdate(UUID scheduleId, String rdateLocalStr, Integer durationSeconds) {
+        Schedule s = scheduleRepository.findById(scheduleId)
+                .orElseThrow(() -> new IllegalArgumentException("Schedule not found: " + scheduleId));
+        Objects.requireNonNull(rdateLocalStr, "rdateLocal is required");
+        LocalDateTime ldt = LocalDateTime.parse(rdateLocalStr);
+        Integer dur = Optional.ofNullable(durationSeconds).orElse(s.getDurationSeconds());
+        Optional<ScheduleRdate> existing = s.getRdates().stream().filter(r -> r.getRdateLocal().equals(ldt)).findFirst();
+        if (existing.isPresent()) {
+            existing.get().setDurationSeconds(dur);
+        } else {
+            s.addRdate(ScheduleRdate.builder().rdateLocal(ldt).durationSeconds(dur).build());
+        }
+        s.setHasRdates(true);
+        scheduleRepository.save(s);
+    }
+
+    @Transactional
+    public void deleteRdate(UUID scheduleId, String rdateLocalStr) {
+        Schedule s = scheduleRepository.findById(scheduleId)
+                .orElseThrow(() -> new IllegalArgumentException("Schedule not found: " + scheduleId));
+        Objects.requireNonNull(rdateLocalStr, "rdateLocal is required");
+        LocalDateTime ldt = LocalDateTime.parse(rdateLocalStr);
+        s.getRdates().removeIf(r -> r.getRdateLocal().equals(ldt));
+        if (s.getRdates().isEmpty()) s.setHasRdates(false);
+        scheduleRepository.save(s);
+    }
+
+    @Transactional
+    public void putOverride(UUID scheduleId, String recurrenceIdLocalStr, ScheduleOverrideRequest req) {
+        Schedule s = scheduleRepository.findById(scheduleId)
+                .orElseThrow(() -> new IllegalArgumentException("Schedule not found: " + scheduleId));
+        Objects.requireNonNull(recurrenceIdLocalStr, "recurrenceIdLocal is required");
+        Objects.requireNonNull(req.getNewStartLocal(), "newStartLocal is required");
+        LocalDateTime rid = LocalDateTime.parse(recurrenceIdLocalStr);
+        Integer dur = Optional.ofNullable(req.getNewDurationSeconds()).orElse(s.getDurationSeconds());
+        Optional<ScheduleOverride> existing = s.getOverrides().stream()
+                .filter(o -> o.getRecurrenceIdLocal().equals(rid)).findFirst();
+        if (existing.isPresent()) {
+            ScheduleOverride o = existing.get();
+            o.setNewStartLocal(req.getNewStartLocal());
+            o.setNewDurationSeconds(dur);
+            o.setSummary(req.getSummary());
+            o.setNotes(req.getNotes());
+        } else {
+            s.addOverride(ScheduleOverride.builder()
+                    .recurrenceIdLocal(rid)
+                    .newStartLocal(req.getNewStartLocal())
+                    .newDurationSeconds(dur)
+                    .summary(req.getSummary())
+                    .notes(req.getNotes())
+                    .build());
+        }
+        s.setHasOverrides(true);
+        scheduleRepository.save(s);
+    }
+
+    @Transactional
+    public void deleteOverride(UUID scheduleId, String recurrenceIdLocalStr) {
+        Schedule s = scheduleRepository.findById(scheduleId)
+                .orElseThrow(() -> new IllegalArgumentException("Schedule not found: " + scheduleId));
+        Objects.requireNonNull(recurrenceIdLocalStr, "recurrenceIdLocal is required");
+        LocalDateTime rid = LocalDateTime.parse(recurrenceIdLocalStr);
+        s.getOverrides().removeIf(o -> o.getRecurrenceIdLocal().equals(rid));
+        if (s.getOverrides().isEmpty()) s.setHasOverrides(false);
+        scheduleRepository.save(s);
+    }
+
+    @Transactional
+    public void forceEnd(UUID scheduleId, ForceEndRequest req) {
+        Schedule s = scheduleRepository.findById(scheduleId)
+                .orElseThrow(() -> new IllegalArgumentException("Schedule not found: " + scheduleId));
+        Objects.requireNonNull(req.getSeriesUntilUtc(), "seriesUntilUtc is required");
+        // Validation: cannot set until before series start utc
+        if (req.getSeriesUntilUtc().isBefore(s.getSeriesStartUtc())) {
+            throw new IllegalArgumentException("seriesUntilUtc cannot be before seriesStartUtc");
+        }
+        s.setSeriesUntilUtc(req.getSeriesUntilUtc());
+        scheduleRepository.save(s);
     }
 
     @Transactional

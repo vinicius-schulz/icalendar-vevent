@@ -11,13 +11,18 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import br.com.honora.icalendar_vevent.domain.Schedule;
 import br.com.honora.icalendar_vevent.dto.request.ScheduleRequest;
+import br.com.honora.icalendar_vevent.dto.request.ScheduleOverrideRequest;
+import br.com.honora.icalendar_vevent.dto.request.ForceEndRequest;
 import br.com.honora.icalendar_vevent.dto.response.ScheduleOccurrenceResponse;
 import br.com.honora.icalendar_vevent.dto.response.ScheduleResponse;
 import br.com.honora.icalendar_vevent.service.ScheduleService;
@@ -74,13 +79,68 @@ public class ScheduleController {
 
     @Operation(summary = "Exporta um Schedule como .ics", description = "Gera um arquivo iCalendar (text/calendar) com VEVENT mestre (RRULE/EXDATE/RDATE) e VEVENTs de overrides.")
     @GetMapping(value = "/{id}/calendar.ics")
-    public ResponseEntity<byte[]> exportIcs(@org.springframework.web.bind.annotation.PathVariable("id") UUID id) {
+    public ResponseEntity<byte[]> exportIcs(@PathVariable("id") UUID id) {
         String ics = scheduleService.buildIcsForSchedule(id);
         byte[] bytes = ics.getBytes(StandardCharsets.UTF_8);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(new MediaType("text", "calendar"));
         headers.set(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=calendar-" + id + ".ics");
         return ResponseEntity.ok().headers(headers).body(bytes);
+    }
+
+    @Operation(summary = "Upsert EXDATE (idempotente)", description = "Cria ou garante a existência de um EXDATE para a data/hora local informada.")
+    @PutMapping("/{id}/exdates/{exdateLocal}")
+    public ResponseEntity<Void> putExdate(@PathVariable("id") UUID id, @PathVariable("exdateLocal") String exdateLocal) {
+        scheduleService.putExdate(id, exdateLocal);
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "Remove EXDATE")
+    @DeleteMapping("/{id}/exdates/{exdateLocal}")
+    public ResponseEntity<Void> deleteExdate(@PathVariable("id") UUID id, @PathVariable("exdateLocal") String exdateLocal) {
+        scheduleService.deleteExdate(id, exdateLocal);
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "Upsert RDATE (idempotente)", description = "Cria ou atualiza um RDATE pela data/hora local da ocorrência; durationSeconds é opcional.")
+    @PutMapping("/{id}/rdates/{rdateLocal}")
+    public ResponseEntity<Void> putRdate(
+            @PathVariable("id") UUID id,
+            @PathVariable("rdateLocal") String rdateLocal,
+            @RequestParam(value = "durationSeconds", required = false) Integer durationSeconds) {
+        scheduleService.putRdate(id, rdateLocal, durationSeconds);
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "Remove RDATE")
+    @DeleteMapping("/{id}/rdates/{rdateLocal}")
+    public ResponseEntity<Void> deleteRdate(@PathVariable("id") UUID id, @PathVariable("rdateLocal") String rdateLocal) {
+        scheduleService.deleteRdate(id, rdateLocal);
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "Upsert OVERRIDE (idempotente)", description = "Cria ou atualiza um override pela recurrenceIdLocal; newStartLocal é obrigatório.")
+    @PutMapping("/{id}/overrides/{recurrenceIdLocal}")
+    public ResponseEntity<Void> putOverride(
+            @PathVariable("id") UUID id,
+            @PathVariable("recurrenceIdLocal") String recurrenceIdLocal,
+            @RequestBody ScheduleOverrideRequest req) {
+        scheduleService.putOverride(id, recurrenceIdLocal, req);
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "Remove OVERRIDE")
+    @DeleteMapping("/{id}/overrides/{recurrenceIdLocal}")
+    public ResponseEntity<Void> deleteOverride(@PathVariable("id") UUID id, @PathVariable("recurrenceIdLocal") String recurrenceIdLocal) {
+        scheduleService.deleteOverride(id, recurrenceIdLocal);
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "Força encerramento da série (PATCH seriesUntilUtc)")
+    @PatchMapping("/{id}/series-until")
+    public ResponseEntity<Void> forceEnd(@PathVariable("id") UUID id, @RequestBody ForceEndRequest req) {
+        scheduleService.forceEnd(id, req);
+        return ResponseEntity.noContent().build();
     }
 
 }

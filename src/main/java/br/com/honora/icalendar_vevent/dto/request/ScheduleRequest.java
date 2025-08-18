@@ -50,4 +50,7 @@ public class ScheduleRequest {
 
     @JsonProperty("rdates")
     private List<ScheduleRdateRequest> rdates;
+
+    @JsonProperty("overrides")
+    private List<ScheduleOverrideRequest> overrides;
 }

@@ -59,7 +59,7 @@ public class ScheduleService {
                 .notes(req.getNotes())
                 .hasExdates(req.getExdates() != null && !req.getExdates().isEmpty())
                 .hasRdates(req.getRdates() != null && !req.getRdates().isEmpty())
-                .hasOverrides(false)
+                .hasOverrides(req.getOverrides() != null && !req.getOverrides().isEmpty())
                 .build();
 
         // exdates
@@ -75,9 +75,21 @@ public class ScheduleService {
         Optional.ofNullable(req.getRdates()).ifPresent(list -> list.forEach(ldt -> {
             ScheduleRdate r = ScheduleRdate.builder()
                     .rdateLocal(ldt.getRdateLocal())
-                    .durationSeconds(s.getDurationSeconds())
+                    .durationSeconds(Optional.ofNullable(ldt.getDurationSeconds()).orElse(s.getDurationSeconds()))
                     .build();
             s.addRdate(r);
+        }));
+
+        // overrides
+        Optional.ofNullable(req.getOverrides()).ifPresent(list -> list.forEach(ov -> {
+            ScheduleOverride o = ScheduleOverride.builder()
+                    .recurrenceIdLocal(ov.getRecurrenceIdLocal())
+                    .newStartLocal(ov.getNewStartLocal())
+                    .newDurationSeconds(Optional.ofNullable(ov.getNewDurationSeconds()).orElse(s.getDurationSeconds()))
+                    .summary(ov.getSummary())
+                    .notes(ov.getNotes())
+                    .build();
+            s.addOverride(o);
         }));
 
         return scheduleRepository.save(s);

@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 import br.com.honora.icalendar_vevent.domain.Schedule;
 import br.com.honora.icalendar_vevent.dto.request.ScheduleRequest;
 import br.com.honora.icalendar_vevent.dto.response.ScheduleOccurrenceResponse;
+import br.com.honora.icalendar_vevent.dto.response.ScheduleResponse;
 import br.com.honora.icalendar_vevent.service.ScheduleService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -46,10 +47,10 @@ public class ScheduleController {
     }
 
     @Operation(summary = "List schedules", description = "Retorna a lista de schedules persistidos.")
-    @ApiResponse(responseCode = "200", description = "Lista de schedules", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Schedule.class), examples = @ExampleObject(value = "[{ \"schId\": \"550e8400-e29b-41d4-a716-446655440000\", \"schRruleJson\": { \"freq\":\"WEEKLY\",\"interval\":1,\"byday\":[\"TH\"],\"exdates_local\":[\"2025-09-07T18:00:00\"],\"rdates_local\":[] }, \"schTzid\": \"America/Sao_Paulo\", \"schSeriesStartLocal\": \"2025-09-04T15:00:00\", \"schSeriesStartUtc\": \"2025-09-04T18:00:00Z\", \"schSeriesUntilUtc\": null, \"schDurationSeconds\": 3600, \"schSummary\": \"Reunião semanal\", \"schNotes\": \"Exemplo\", \"schHasExdates\": true, \"schHasRdates\": false, \"schHasOverrides\": false, \"schCreatedAt\": null, \"schUpdatedAt\": null, \"exdates\": [], \"rdates\": [], \"overrides\": [] }]")))
+    @ApiResponse(responseCode = "200", description = "Lista de schedules", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ScheduleResponse.class)))
     @GetMapping
-    public ResponseEntity<List<Schedule>> list() {
-        List<Schedule> list = scheduleService.findAll();
+    public ResponseEntity<List<ScheduleResponse>> list() {
+        List<ScheduleResponse> list = scheduleService.findAll();
         return ResponseEntity.ok(list);
     }
 

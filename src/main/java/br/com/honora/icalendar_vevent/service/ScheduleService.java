@@ -28,6 +28,7 @@ import br.com.honora.icalendar_vevent.domain.ScheduleOverride;
 import br.com.honora.icalendar_vevent.domain.ScheduleRdate;
 import br.com.honora.icalendar_vevent.dto.request.ScheduleRequest;
 import br.com.honora.icalendar_vevent.dto.response.ScheduleOccurrenceResponse;
+import br.com.honora.icalendar_vevent.dto.response.ScheduleResponse;
 import br.com.honora.icalendar_vevent.repository.ScheduleRepository;
 import br.com.honora.icalendar_vevent.utils.DateUtils;
 import net.fortuna.ical4j.model.DateList;
@@ -83,8 +84,50 @@ public class ScheduleService {
     }
 
     // Lista todos os schedules
-    public List<Schedule> findAll() {
-        return scheduleRepository.findAll();
+    public List<ScheduleResponse> findAll() {
+        return scheduleRepository.findAll().stream().map(this::toResponse).collect(Collectors.toList());
+    }
+
+    private ScheduleResponse toResponse(Schedule s) {
+    return ScheduleResponse.builder()
+        .id(s.getId())
+        .rruleJson(s.getRruleJson())
+        .tzid(s.getTzid())
+        .seriesStartLocal(s.getSeriesStartLocal())
+        .seriesStartUtc(s.getSeriesStartUtc())
+        .seriesUntilUtc(s.getSeriesUntilUtc())
+        .durationSeconds(s.getDurationSeconds())
+        .summary(s.getSummary())
+        .notes(s.getNotes())
+        .hasExdates(s.isHasExdates())
+        .hasRdates(s.isHasRdates())
+        .hasOverrides(s.isHasOverrides())
+        .createdAt(s.getCreatedAt())
+        .updatedAt(s.getUpdatedAt())
+        .exdates(Optional.ofNullable(s.getExdates()).orElseGet(java.util.Set::of).stream()
+            .map(e -> br.com.honora.icalendar_vevent.dto.response.ScheduleExdateResponse.builder()
+                .id(e.getId())
+                .exdateLocal(e.getExdateLocal())
+                .build())
+            .collect(Collectors.toList()))
+        .rdates(Optional.ofNullable(s.getRdates()).orElseGet(java.util.Set::of).stream()
+            .map(r -> br.com.honora.icalendar_vevent.dto.response.ScheduleRdateResponse.builder()
+                .id(r.getId())
+                .rdateLocal(r.getRdateLocal())
+                .durationSeconds(r.getDurationSeconds())
+                .build())
+            .collect(Collectors.toList()))
+        .overrides(Optional.ofNullable(s.getOverrides()).orElseGet(java.util.Set::of).stream()
+            .map(o -> br.com.honora.icalendar_vevent.dto.response.ScheduleOverrideResponse.builder()
+                .id(o.getId())
+                .recurrenceIdLocal(o.getRecurrenceIdLocal())
+                .newStartLocal(o.getNewStartLocal())
+                .newDurationSeconds(o.getNewDurationSeconds())
+                .summary(o.getSummary())
+                .notes(o.getNotes())
+                .build())
+            .collect(Collectors.toList()))
+        .build();
     }
 
     // Exclui todos os schedules (batch)
